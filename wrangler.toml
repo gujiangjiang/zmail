@@ -17,7 +17,7 @@ database_id = "${D1_DATABASE_ID}"      # 这是 D1 数据库 ID 的占位符
 # 设置域名
 # 注意：这里的 VITE_EMAIL_DOMAIN 将由 GitHub Action 动态替换
 [vars]
-VITE_EMAIL_DOMAIN = "${VITE_EMAIL_DOMAIN}"   # 这是邮箱域名的占位符
+VITE_EMAIL_DOMAIN = "test.com"   # 这是邮箱域名的占位符
 
 # 配置邮件处理
 [triggers]

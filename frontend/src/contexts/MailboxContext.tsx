@@ -5,6 +5,7 @@ import {
   saveMailboxToLocalStorage,
   removeMailboxFromLocalStorage,
   getEmails,
+  getMailbox as apiGetMailbox,
   deleteMailbox as apiDeleteMailbox
 } from '../utils/api';
 import { useTranslation } from 'react-i18next';
@@ -38,6 +39,7 @@ interface MailboxContextType {
   addToEmailCache: (emailId: string, email: Email, attachments: any[]) => void;
   clearEmailCache: () => void;
   handleMailboxNotFound: () => Promise<void>;
+  loadMailboxByAddress: (address: string) => Promise<boolean>;
   errorMessage: string | null;
   successMessage: string | null;
   // feat: 添加用于显示全局通知的函数
@@ -64,6 +66,7 @@ export const MailboxContext = createContext<MailboxContextType>({
   addToEmailCache: () => {},
   clearEmailCache: () => {},
   handleMailboxNotFound: async () => {},
+  loadMailboxByAddress: async () => false,
   errorMessage: null,
   successMessage: null,
   // feat: 提供默认空函数
@@ -127,6 +130,13 @@ export const MailboxProvider: React.FC<MailboxProviderProps> = ({ children }) =>
   // 初始化：检查本地存储或创建新邮箱
   useEffect(() => {
     const initMailbox = async () => {
+      // 如果 URL 中包含邮箱地址（非首页），跳过自动创建，由 MailboxPage 处理
+      const path = window.location.pathname;
+      if (path !== '/' && path.length > 1) {
+        setIsLoading(false);
+        return;
+      }
+
       // 检查本地存储中是否有未过期的邮箱
       const savedMailbox = getMailboxFromLocalStorage();
 
@@ -263,13 +273,36 @@ export const MailboxProvider: React.FC<MailboxProviderProps> = ({ children }) =>
   const handleMailboxNotFound = async () => {
     // fix: 使用全局通知函数
     showSuccessMessage(t('mailbox.creatingNew'));
-    
+
     // 清除当前无效的邮箱信息
     removeMailboxFromLocalStorage();
     clearEmailCache();
-    
+
     // 异步创建新邮箱，并更新应用状态
     await createNewMailbox();
+  };
+
+  // 通过地址加载已有邮箱
+  const loadMailboxByAddress = async (address: string): Promise<boolean> => {
+    try {
+      setIsLoading(true);
+      setEmails([]);
+      setSelectedEmail(null);
+      clearEmailCache();
+
+      const result = await apiGetMailbox(address);
+      if (result.success && result.mailbox) {
+        setMailbox(result.mailbox);
+        saveMailboxToLocalStorage(result.mailbox);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('loadMailboxByAddress: Error:', error);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // 添加邮件到缓存
@@ -363,6 +396,7 @@ export const MailboxProvider: React.FC<MailboxProviderProps> = ({ children }) =>
         addToEmailCache,
         clearEmailCache,
         handleMailboxNotFound,
+        loadMailboxByAddress,
         errorMessage,
         successMessage,
         // feat: 将函数添加到 context value 中

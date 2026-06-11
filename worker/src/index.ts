@@ -8,26 +8,31 @@ export default {
   // 处理HTTP请求
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    
+
     try {
       // 自动初始化数据库（如果需要）
       await initializeDatabase(env.DB);
-      
+
       // 手动初始化数据库（如果请求中包含init参数）
       if (url.searchParams.has('init')) {
-        return new Response(JSON.stringify({ 
-          success: true, 
-          message: '数据库初始化成功' 
+        return new Response(JSON.stringify({
+          success: true,
+          message: '数据库初始化成功'
         }), {
           headers: { 'Content-Type': 'application/json' }
         });
       }
-      
-      // 处理API请求
-      return app.fetch(request, env, ctx);
+
+      // 只有 /api/ 开头的请求走 Hono 路由
+      if (url.pathname.startsWith('/api/')) {
+        return app.fetch(request, env, ctx);
+      }
+
+      // 其他请求交给静态资源处理（SPA fallback）
+      return env.ASSETS.fetch(request);
     } catch (error) {
       console.error('请求处理失败:', error);
-      
+
       // 返回详细的错误信息
       return new Response(JSON.stringify({
         success: false,
