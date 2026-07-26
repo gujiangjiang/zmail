@@ -28,9 +28,10 @@ const HeaderMailbox: React.FC<HeaderMailboxProps> = ({
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [customAddressError, setCustomAddressError] = useState<string | null>(null);
 
+  // [fix #23] 切换邮箱时恢复该邮箱自己的域名后缀，而不是沿用当前下拉框的值
   useEffect(() => {
-    setSelectedDomain(domain);
-  }, [domain]);
+    setSelectedDomain(mailbox?.domain || domain);
+  }, [mailbox, domain]);
   
   if (!mailbox || isLoading) return null;
   
@@ -48,14 +49,15 @@ const HeaderMailbox: React.FC<HeaderMailboxProps> = ({
       });
   };
   
-  // 更换随机邮箱
-  const handleRefreshMailbox = async () => {
+  // 更换随机邮箱（domainOverride 用于域名刚切换、state 尚未更新的场景）
+  const handleRefreshMailbox = async (domainOverride?: string) => {
     setIsActionLoading(true);
     const result = await createRandomMailbox();
     setIsActionLoading(false);
-    
+
     if (result.success && result.mailbox) {
-      onMailboxChange(result.mailbox);
+      // [fix #23] 把当前选中的域名记录到邮箱上，切换回来时才能还原
+      onMailboxChange({ ...result.mailbox, domain: domainOverride || selectedDomain });
       // feat: 使用全局通知替换 Tooltip
       showSuccessMessage(t('mailbox.refreshSuccess'));
     } else {
@@ -70,18 +72,21 @@ const HeaderMailbox: React.FC<HeaderMailboxProps> = ({
     
     // 清除之前的错误信息
     setCustomAddressError(null);
-    
-    if (!customAddress.trim()) {
+
+    // 与后端同规则：小写字母数字开头结尾，中间可含 . _ -，最长 64 位
+    const normalized = customAddress.trim().toLowerCase();
+    if (!/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/.test(normalized)) {
       setCustomAddressError(t('mailbox.invalidAddress'));
       return;
     }
-    
+
     setIsActionLoading(true);
-    const result = await createCustomMailbox(customAddress);
+    const result = await createCustomMailbox(normalized);
     setIsActionLoading(false);
     
     if (result.success && result.mailbox) {
-      onMailboxChange(result.mailbox);
+      // [fix #23] 自定义邮箱同样记录所选域名
+      onMailboxChange({ ...result.mailbox, domain: selectedDomain });
       // fix: 使用全局通知函数显示成功
       showSuccessMessage(t('mailbox.createSuccess'));
       
@@ -127,9 +132,12 @@ const HeaderMailbox: React.FC<HeaderMailboxProps> = ({
   
   // 切换域名
   const handleDomainChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedDomain(e.target.value);
-    // [fix] 切换域名后自动更换邮箱
-    await handleRefreshMailbox();
+    const newDomain = e.target.value;
+    setSelectedDomain(newDomain);
+    // 自定义模式下用户正在填写地址，只更新后缀，不要自动更换邮箱
+    if (isCustomMode) return;
+    // [fix] 切换域名后自动更换邮箱（显式传入新域名，避免读到旧 state）
+    await handleRefreshMailbox(newDomain);
   };
   
   // 按钮基础样式
@@ -246,7 +254,7 @@ const HeaderMailbox: React.FC<HeaderMailboxProps> = ({
               
               <div className="relative">
                 <button
-                  onClick={handleRefreshMailbox}
+                  onClick={() => handleRefreshMailbox()}
                   className={`w-8 h-8 ${refreshButtonClass}`}
                   disabled={isActionLoading}
                   title={t('mailbox.refresh')}
@@ -297,7 +305,7 @@ const HeaderMailbox: React.FC<HeaderMailboxProps> = ({
             <div className="flex items-center">
               <div className="relative">
                 <button
-                  onClick={handleRefreshMailbox}
+                  onClick={() => handleRefreshMailbox()}
                   className={`w-6 h-6 ${refreshButtonClass}`}
                   disabled={isActionLoading}
                   title={t('mailbox.refresh')}

@@ -204,7 +204,7 @@ const MailboxSwitcher: React.FC<MailboxSwitcherProps> = ({
                     m.address === currentMailbox.address ? 'bg-primary/10 text-primary font-medium' : ''
                   }`}
                 >
-                  {m.address}@{domain}
+                  {m.address}@{m.domain || domain}
                 </button>
                 {m.address !== currentMailbox.address && (
                   <button

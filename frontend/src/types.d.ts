@@ -12,6 +12,8 @@ interface Mailbox {
   expiresAt: number;
   lastAccessed: number;
   ipAddress?: string;
+  // 创建该邮箱时选择的域名后缀（仅前端使用，后端按本地部分匹配）
+  domain?: string;
 }
 
 interface Email {
