@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { API_BASE_URL } from '../config';
 import { MailboxContext } from '../contexts/MailboxContext';
+import { formatDetailDate, formatFileSize } from '../utils/format';
 
 interface EmailDetailProps {
   emailId: string;
@@ -22,7 +23,7 @@ interface Attachment {
 const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, onClose }) => {
   const { t } = useTranslation();
   // fix: 从 context 中获取全局通知函数
-  const { emailCache, addToEmailCache, handleMailboxNotFound, showErrorMessage, showSuccessMessage } = useContext(MailboxContext);
+  const { emailCache, addToEmailCache, removeEmailFromList, handleMailboxNotFound, showErrorMessage, showSuccessMessage } = useContext(MailboxContext);
   const [email, setEmail] = useState<Email | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,7 +76,10 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, onClose }) => {
     };
     
     fetchEmail();
-  }, [emailId, t, emailCache, addToEmailCache, handleMailboxNotFound, onClose, showErrorMessage]);
+    // [perf]: 仅在 emailId 变化时拉取。emailCache 等依赖会随每次轮询变化，
+    // 放进依赖数组会导致缓存未命中的邮件被反复重新请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailId]);
   
   const fetchAttachments = async (emailId: string, emailData?: Email) => {
     try {
@@ -124,11 +128,10 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, onClose }) => {
       if (data.success) {
         // fix: 使用全局通知函数
         showSuccessMessage(t('email.deleteSuccess'));
-        
-        // 2秒后关闭邮件详情
-        setTimeout(() => {
-          onClose();
-        }, 2000);
+
+        // [fix]: 立即从列表和缓存中移除该邮件并关闭详情，不再等待下一次轮询
+        removeEmailFromList(emailId);
+        onClose();
       } else {
         throw new Error(data.error || 'Unknown error');
       }
@@ -136,29 +139,6 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, onClose }) => {
       // fix: 使用全局通知函数
       showErrorMessage(t('email.deleteFailed'));
     }
-  };
-  
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return new Intl.DateTimeFormat(undefined, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }).format(date);
-  };
-  
-  // 格式化文件大小
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
   
   // 判断文件类型
@@ -262,7 +242,7 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, onClose }) => {
               <div className="text-sm text-muted-foreground">
                 <p><strong>{t('email.from')}:</strong> {email.fromAddress}</p>
                 <p><strong>{t('email.to')}:</strong> {email.toAddress}</p>
-                <p><strong>{t('email.date')}:</strong> {formatDate(email.receivedAt)}</p>
+                <p><strong>{t('email.date')}:</strong> {formatDetailDate(email.receivedAt)}</p>
               </div>
             </div>
             <div className="flex space-x-2">
@@ -290,9 +270,13 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, onClose }) => {
           <div>
             <h3 className="font-medium mb-2">{t('email.content')}</h3>
             {email.htmlContent ? (
-              <div 
-                className="prose max-w-none border rounded-md p-4 bg-white"
-                dangerouslySetInnerHTML={{ __html: email.htmlContent }}
+              // [security] 邮件正文来自任意外部发件人，用无权限沙箱 iframe 隔离渲染，阻断脚本执行与同源访问
+              <iframe
+                srcDoc={email.htmlContent}
+                sandbox=""
+                referrerPolicy="no-referrer"
+                className="w-full h-[500px] border rounded-md bg-white"
+                title={t('email.content')}
               />
             ) : email.textContent ? (
               <pre className="whitespace-pre-wrap border rounded-md p-4 bg-white font-sans">

@@ -2,6 +2,7 @@ import React, { useContext, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MailboxContext } from '../contexts/MailboxContext';
 import EmailDetail from './EmailDetail';
+import { formatShortDate, formatFullDate } from '../utils/format';
 
 interface EmailListProps {
   emails: Email[];
@@ -19,27 +20,6 @@ const EmailList: React.FC<EmailListProps> = ({
   const { t } = useTranslation();
   const { autoRefresh, setAutoRefresh, refreshEmails, mailbox, deleteMailbox } = useContext(MailboxContext);
   const [isDeleting, setIsDeleting] = useState(false);
-  
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return new Intl.DateTimeFormat(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
-  };
-  
-  const formatFullDate = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return new Intl.DateTimeFormat(undefined, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
-  };
   
   const calculateTimeLeft = (expiresAt: number) => {
     if (!expiresAt) return '';
@@ -83,7 +63,9 @@ const EmailList: React.FC<EmailListProps> = ({
     }
   };
   
-  if (isLoading || isDeleting) {
+  // [fix]: 只有首次加载（列表还是空的）或删除邮箱时才整体显示 spinner；
+  // 后台轮询刷新不清空列表，避免每 10 秒闪烁一次、正在阅读的详情被卸载
+  if ((isLoading && emails.length === 0) || isDeleting) {
     return (
       <div className="border rounded-lg p-6">
         <div className="flex justify-between items-center mb-4">
@@ -106,7 +88,7 @@ const EmailList: React.FC<EmailListProps> = ({
             className="p-1 rounded-md hover:bg-muted"
             title={t('email.refresh')}
           >
-            <i className="fas fa-sync-alt text-sm"></i>
+            <i className={`fas fa-sync-alt text-sm ${isLoading ? 'fa-spin' : ''}`}></i>
           </button>
           <button
             onClick={toggleAutoRefresh}
@@ -172,7 +154,7 @@ const EmailList: React.FC<EmailListProps> = ({
                 <div className="flex justify-between mb-1">
                   <span className="truncate">{email.fromName || email.fromAddress}</span>
                   <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
-                    {formatDate(email.receivedAt)}
+                    {formatShortDate(email.receivedAt)}
                   </span>
                 </div>
                 <div className="text-sm truncate">

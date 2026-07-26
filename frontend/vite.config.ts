@@ -12,22 +12,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // 本地开发代理到 wrangler dev（pnpm run dev:backend），不要指向任何线上环境
       '/api': {
-        target: 'http://api.mail.mdzz.uk',
+        target: 'http://localhost:8787',
         changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('proxy error', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('Sending Request to the Target:', req.method, req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
-          });
-        },
       },
     },
   },

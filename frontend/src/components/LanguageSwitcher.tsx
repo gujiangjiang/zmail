@@ -1,10 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const LanguageSwitcher: React.FC = () => {
   const { i18n, t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const languages = [
     { code: 'zh-CN', name: '简体中文', icon: 'fa-solid fa-language' },
     { code: 'en', name: 'English', icon: 'fa-solid fa-language' },
@@ -18,7 +33,7 @@ const LanguageSwitcher: React.FC = () => {
   };
   
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="w-8 h-8 flex items-center justify-center rounded-md transition-all duration-200 hover:bg-primary/20 hover:text-primary hover:scale-110"
