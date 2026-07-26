@@ -18,6 +18,19 @@ import {
 // 附件分块大小（字节）
 const CHUNK_SIZE = 500000; // 约500KB
 
+// 每个 isolate 只初始化一次，避免每个请求都执行 14 条 CREATE 语句
+let databaseInitialized = false;
+
+/**
+ * 确保数据库已初始化（幂等，每个 isolate 生命周期内只执行一次）
+ * @param db 数据库实例
+ */
+export async function ensureDatabase(db: D1Database): Promise<void> {
+  if (databaseInitialized) return;
+  await initializeDatabase(db);
+  databaseInitialized = true;
+}
+
 /**
  * 初始化数据库
  * @param db 数据库实例
@@ -98,28 +111,6 @@ export async function getMailbox(db: D1Database, address: string): Promise<Mailb
     ipAddress: result.ip_address as string,
     lastAccessed: now,
   };
-}
-
-/**
- * 获取用户的所有邮箱
- * @param db 数据库实例
- * @param ipAddress IP地址
- * @returns 邮箱列表
- */
-export async function getMailboxes(db: D1Database, ipAddress: string): Promise<Mailbox[]> {
-  const now = getCurrentTimestamp();
-  const results = await db.prepare(`SELECT id, address, created_at, expires_at, ip_address, last_accessed FROM mailboxes WHERE ip_address = ? AND expires_at > ? ORDER BY created_at DESC`).bind(ipAddress, now).all();
-  
-  if (!results.results) return [];
-  
-  return results.results.map(result => ({
-    id: result.id as string,
-    address: result.address as string,
-    createdAt: result.created_at as number,
-    expiresAt: result.expires_at as number,
-    ipAddress: result.ip_address as string,
-    lastAccessed: result.last_accessed as number,
-  }));
 }
 
 /**
@@ -206,51 +197,6 @@ export async function cleanupExpiredMails(db: D1Database): Promise<number> {
   await cleanupOrphanedAttachments(db);
   
   return result.meta?.changes || 0;
-}
-
-/**
- * 清理已被阅读的邮件
- * @param db 数据库实例
- * @returns 删除的邮件数量
- */
-export async function cleanupReadMails(db: D1Database): Promise<number> {
-  // [refactor] 同样利用 ON DELETE CASCADE 特性简化逻辑
-  const result = await db.prepare(`DELETE FROM emails WHERE is_read = 1`).run();
-  
-  await cleanupOrphanedAttachments(db);
-  
-  return result.meta?.changes || 0;
-}
-
-/**
- * 清理指定邮件的所有附件
- * @param db 数据库实例
- * @param emailId 邮件ID
- */
-async function cleanupAttachments(db: D1Database, emailId: string): Promise<void> {
-  // [refactor] 利用 ON DELETE CASCADE，此函数在删除邮件时不再需要手动调用。
-  // 但保留此函数以备其他需要单独清理附件的场景。
-  try {
-    // 获取邮件的所有附件ID
-    const attachmentsResult = await db.prepare(`SELECT id FROM attachments WHERE email_id = ?`).bind(emailId).all<{ id: string }>();
-    
-    if (attachmentsResult.results && attachmentsResult.results.length > 0) {
-      const attachmentIds = attachmentsResult.results.map(row => row.id);
-      const placeholders = attachmentIds.map(() => '?').join(',');
-
-      console.log(`邮件 ${emailId} 有 ${attachmentIds.length} 个附件需要清理`);
-      
-      // 批量删除所有分块
-      await db.prepare(`DELETE FROM attachment_chunks WHERE attachment_id IN (${placeholders})`).bind(...attachmentIds).run();
-      console.log(`已清理附件的所有分块`);
-      
-      // 批量删除所有附件记录
-      await db.prepare(`DELETE FROM attachments WHERE id IN (${placeholders})`).bind(...attachmentIds).run();
-      console.log(`已清理邮件 ${emailId} 的所有附件`);
-    }
-  } catch (error) {
-    console.error(`清理邮件 ${emailId} 的附件时出错:`, error);
-  }
 }
 
 /**
@@ -375,7 +321,8 @@ export async function saveAttachment(db: D1Database, params: SaveAttachmentParam
  * @returns 邮件列表
  */
 export async function getEmails(db: D1Database, mailboxId: string): Promise<EmailListItem[]> {
-  const results = await db.prepare(`SELECT id, mailbox_id, from_address, from_name, to_address, subject, received_at, has_attachments, is_read FROM emails WHERE mailbox_id = ? ORDER BY received_at DESC`).bind(mailboxId).all();
+  // 限制单次返回数量，避免无分页时全表拉取
+  const results = await db.prepare(`SELECT id, mailbox_id, from_address, from_name, to_address, subject, received_at, has_attachments, is_read FROM emails WHERE mailbox_id = ? ORDER BY received_at DESC LIMIT 100`).bind(mailboxId).all();
   
   if (!results.results) return [];
   
@@ -460,8 +407,7 @@ export async function getAttachment(db: D1Database, id: string): Promise<Attachm
   
   // 如果是大型附件，需要从块表中获取内容
   if (isLarge) {
-    const chunksCount = result.chunks_count as number;
-    content = await getAttachmentContent(db, id, chunksCount);
+    content = await getAttachmentContent(db, id);
   }
   
   return {
@@ -481,21 +427,15 @@ export async function getAttachment(db: D1Database, id: string): Promise<Attachm
  * 获取大型附件的内容
  * @param db 数据库实例
  * @param attachmentId 附件ID
- * @param chunksCount 块数量
  * @returns 完整的附件内容
  */
-async function getAttachmentContent(db: D1Database, attachmentId: string, chunksCount: number): Promise<string> {
-  let content = '';
-  
-  // 按顺序获取所有块
-  for (let i = 0; i < chunksCount; i++) {
-    const chunk = await db.prepare(`SELECT content FROM attachment_chunks WHERE attachment_id = ? AND chunk_index = ?`).bind(attachmentId, i).first();
-    if (chunk && chunk.content) {
-      content += chunk.content as string;
-    }
-  }
-  
-  return content;
+async function getAttachmentContent(db: D1Database, attachmentId: string): Promise<string> {
+  // 一条查询按序取回所有分块，避免逐块往返
+  const results = await db.prepare(`SELECT content FROM attachment_chunks WHERE attachment_id = ? ORDER BY chunk_index ASC`).bind(attachmentId).all();
+
+  if (!results.results) return '';
+
+  return results.results.map(chunk => chunk.content as string).join('');
 }
 
 /**

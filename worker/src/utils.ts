@@ -4,21 +4,26 @@
  * @returns 随机字符串
  */
 export function generateRandomString(length: number): string {
+    // [security] 地址即访问凭证，必须使用 CSPRNG，Math.random 可被预测
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    const values = new Uint8Array(length);
+    crypto.getRandomValues(values);
     let result = '';
     for (let i = 0; i < length; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+      result += chars.charAt(values[i] % chars.length);
     }
     return result;
   }
-  
+
   /**
    * 生成随机邮箱地址
    * @returns 随机邮箱地址
    */
   export function generateRandomAddress(): string {
-    // 生成8-12位随机字符
-    const length = Math.floor(Math.random() * 5) + 8;
+    // 生成12-16位随机字符
+    const lenByte = new Uint8Array(1);
+    crypto.getRandomValues(lenByte);
+    const length = 12 + (lenByte[0] % 5);
     return generateRandomString(length);
   }
   
@@ -48,31 +53,11 @@ export function generateRandomString(length: number): string {
   }
   
   /**
-   * 检查字符串是否为有效的邮箱地址格式
-   * @param address 邮箱地址
+   * 校验邮箱本地部分（@ 前的用户名）：小写字母数字开头结尾，中间可含 . _ -，最长 64 位
+   * @param localPart 邮箱本地部分
    * @returns 是否有效
    */
-  export function isValidEmailAddress(address: string): boolean {
-    // 简单的邮箱格式验证
-    const regex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    return regex.test(address);
+  export function isValidLocalPart(localPart: string): boolean {
+    return /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/.test(localPart);
   }
   
-  /**
-   * 提取邮箱地址的用户名部分
-   * @param address 完整邮箱地址
-   * @returns 用户名部分
-   */
-  export function extractMailboxName(address: string): string {
-    return address.split('@')[0];
-  }
-  
-  /**
-   * 格式化日期时间
-   * @param timestamp 时间戳（秒）
-   * @returns 格式化的日期时间字符串
-   */
-  export function formatDateTime(timestamp: number): string {
-    const date = new Date(timestamp * 1000);
-    return date.toISOString();
-  }
