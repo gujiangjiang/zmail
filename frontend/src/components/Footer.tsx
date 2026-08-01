@@ -50,15 +50,6 @@ const Footer: React.FC<FooterProps> = ({ onShowInfo }) => {
               {t("common.blog")}
             </a>
             <a
-              href="https://www.youtube.com/@zaunist"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-primary transition-colors"
-            >
-              <i className="fab fa-youtube mr-1"></i>
-              {t("common.youtube")}
-            </a>
-            <a
               href="https://xugou.mdzz.uk"
               target="_blank"
               rel="noopener noreferrer"
